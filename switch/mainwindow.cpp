@@ -1,0 +1,418 @@
+#include "mainwindow.h"
+#include <QMessageBox>
+#include <QRegularExpression>
+#include "ui_mainwindow.h"
+
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    connect(ui->canTocom_bt, SIGNAL(CanToComData(QByteArray)), this, SLOT(CanToSerial(QByteArray)));
+    connect(ui->comTocan_bt, SIGNAL(ComToCanData(QByteArray)), this, SLOT(SerialToCan(QByteArray)));
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+void MainWindow::SerialToCan(QByteArray Pack)
+{
+    qDebug()<<"TxHex:"<<Pack.toHex();
+    ui->lineEdit_comtocan->setText(Pack.toHex());
+    // 检查Pack是否有足够的字节
+    if (Pack.size() >= 6)
+    {
+        // 第1到第4个字节
+        QString Byte0 = QString::number(static_cast<unsigned char>(Pack[0]), 16).toUpper().rightJustified(2, '0');
+        QString Byte1 = QString::number(static_cast<unsigned char>(Pack[1]), 16).toUpper().rightJustified(2, '0');
+        QString Byte2 = QString::number(static_cast<unsigned char>(Pack[2]), 16).toUpper().rightJustified(2, '0');
+        QString Byte3 = QString::number(static_cast<unsigned char>(Pack[3]), 16).toUpper().rightJustified(2, '0');
+        ui->lineEdit_11->setText(Byte0 + " " + Byte1 + " " + Byte2 + " " + Byte3);
+
+        // 第5个字节
+        QString Byte4 = QString::number(static_cast<unsigned char>(Pack[4]), 16).toUpper().rightJustified(2, '0');
+        ui->lineEdit_12->setText(Byte4);
+
+        // 第6个字节到最后
+        QString restBytes;
+        for (int i = 5; i < Pack.size(); ++i) {
+            restBytes += QString::number(static_cast<unsigned char>(Pack[i]), 16).toUpper().rightJustified(2, '0');
+            if (i < Pack.size() - 1) {
+                restBytes += " "; // 用空格分隔
+            }
+        }
+        ui->lineEdit_13->setText(restBytes);
+    } else {
+        // 数据不足时，输出提示
+        ui->lineEdit_11->setText("Insufficient data");
+        ui->lineEdit_12->setText("Insufficient data");
+        ui->lineEdit_13->setText("Insufficient data");
+    }
+
+}
+void MainWindow::CanToSerial(QByteArray Pack)
+{
+    qDebug()<<"TxHex:"<<Pack.toHex();
+    ui->lineEdit_cantocom->setText(Pack.toHex());
+    // 检查 Pack 是否有足够的字节
+    if (Pack.size() >= 8) {
+        // 第1和第2个字节
+        QString Byte0 = QString::number(static_cast<unsigned char>(Pack[0]), 16).toUpper().rightJustified(2, '0');
+        QString Byte1 = QString::number(static_cast<unsigned char>(Pack[1]), 16).toUpper().rightJustified(2, '0');
+        ui->lineEdit_5->setText(Byte0 + " " + Byte1);
+
+        // 第3到第6个字节
+        QString Byte2 = QString::number(static_cast<unsigned char>(Pack[2]), 16).toUpper().rightJustified(2, '0');
+        QString Byte3 = QString::number(static_cast<unsigned char>(Pack[3]), 16).toUpper().rightJustified(2, '0');
+        QString Byte4 = QString::number(static_cast<unsigned char>(Pack[4]), 16).toUpper().rightJustified(2, '0');
+        QString Byte5 = QString::number(static_cast<unsigned char>(Pack[5]), 16).toUpper().rightJustified(2, '0');
+        ui->lineEdit_6->setText(Byte2 + " " + Byte3 + " " + Byte4 + " " + Byte5);
+
+        // 第7个字节
+        QString Byte6 = QString::number(static_cast<unsigned char>(Pack[6]), 16).toUpper().rightJustified(2, '0');
+        ui->lineEdit_7->setText(Byte6);
+
+        // 第8个字节到倒数第三个字节
+        QString restBytes9;
+        for (int i = 7; i < Pack.size() - 2; ++i) {
+            restBytes9 += QString::number(static_cast<unsigned char>(Pack[i]), 16).toUpper().rightJustified(2, '0');
+            if (i < Pack.size() - 3) {
+                restBytes9 += " "; // 用空格分隔
+            }
+        }
+        ui->lineEdit_9->setText(restBytes9);
+
+        // 最后两个字节
+        QString ByteLast1 = QString::number(static_cast<unsigned char>(Pack[Pack.size() - 2]), 16).toUpper().rightJustified(2, '0');
+        QString ByteLast2 = QString::number(static_cast<unsigned char>(Pack[Pack.size() - 1]), 16).toUpper().rightJustified(2, '0');
+        ui->lineEdit_8->setText(ByteLast1 + " " + ByteLast2);
+    } else {
+        // 数据不足时，输出提示
+        ui->lineEdit_5->setText("Insufficient data");
+        ui->lineEdit_6->setText("Insufficient data");
+        ui->lineEdit_7->setText("Insufficient data");
+        ui->lineEdit_8->setText("Insufficient data");
+        ui->lineEdit_9->setText("Insufficient data");
+    }
+}
+
+void MainWindow::txdPack(struct dataPack *pack)
+{
+    QByteArray Pack("\0");
+
+    if(pack->len < 1)
+    {
+        pack->len = 1;
+        pack->cdata[0] = 0;
+    }
+    else if(pack->len > 8)
+    {
+        pack->len = 8;
+    }
+
+    pack->res = 0;
+
+    Pack.resize(9+pack->len);
+
+    Pack[0] = 'A';
+    Pack[1] = 'T';
+
+//    quint32 addr;
+
+//    memcpy(&addr,&(pack->exId),4);
+
+//    addr = (addr<<3)|(0X00000004);  //需按维特usb-can适配器的can——id报文要求发送134282497
+    quint32 addr = (static_cast<quint32>(pack->exId.id) << 24) |    // ID 占高8位
+                   (static_cast<quint32>(pack->exId.data) << 8) |   // Data 占中间16位
+                   (static_cast<quint32>(pack->exId.mode) << 3) |   // Mode 占低8位中的高5位
+                   (static_cast<quint32>(pack->exId.res));          // Res 占最低的3位
+    quint8 byte1 = (addr >> 24) & 0xFF;  // 最高字节
+    quint8 byte2 = (addr >> 16) & 0xFF;  // 第二高字节
+    quint8 byte3 = (addr >> 8)  & 0xFF;  // 第三高字节
+    quint8 byte4 = addr & 0xFF;          // 最低字节
+
+    qDebug() << "Byte 1:" << QString::number(byte1, 16).toUpper();  // 以16进制输出
+    qDebug() << "Byte 2:" << QString::number(byte2, 16).toUpper();
+    qDebug() << "Byte 3:" << QString::number(byte3, 16).toUpper();
+    qDebug() << "Byte 4:" << QString::number(byte4, 16).toUpper();
+
+    addr = (addr << 3) | 0X00000004;
+
+
+    qDebug() << "Copied address:" << addr;
+    Pack[2] = (quint8)((addr&0XFF000000)>>24);
+    Pack[3] = (quint8)((addr&0X00FF0000)>>16);
+    Pack[4] = (quint8)((addr&0X0000FF00)>>8);
+    Pack[5] = (quint8)((addr&0X000000FF)>>0);
+
+    Pack[6] = pack->len;
+
+    for(quint8 i =0;i<pack->len;i++)
+        Pack[7+i] = pack->cdata[i];
+
+    Pack[7+pack->len] = '\r';
+    Pack[8+pack->len] = '\n';
+    emit CanToSerial(Pack);
+}
+
+void MainWindow::analysisRxdDatas(QByteArray pack)
+{
+    QByteArray rxdata;
+    // 输出字节数组内容，每个字节以十六进制和十进制表示
+    qDebug() << "Byte array (hex):" << pack.toHex();
+    for (int i = 0; i < pack.size(); ++i) {
+        quint8 byteValue = static_cast<quint8>(pack[i]);  // 确保每个字节被解读为无符号数
+        qDebug() << "Byte" << i << ":" << QString("0x%1").arg(byteValue, 2, 16, QLatin1Char('0')).toUpper() << "(" << byteValue << ")";
+    }
+    if(static_cast<quint8>(pack[0]) == 0x41 && static_cast<quint8>(pack[1]) == 0x54)  //pack包共15个&&(pack.size()==((quint8)pack[6]+11))
+    {
+        uint32_t addr = pack[5]  & 0x000000FF;
+        addr |= ((pack[4] << 8)  & 0x0000FF00);
+        addr |= ((pack[3] << 16) & 0x00FF0000);
+        addr |= ((pack[2] << 24) & 0xFF000000);
+
+//        qDebug()<<"addr:"<<addr;
+        addr = (addr & ~0x00000004) >> 3;
+        qDebug()<<"addr:"<<addr;
+
+        rxFrame.exId.res = addr & 0x07;
+        rxFrame.exId.mode = (addr >> 3) & 0x1F;
+        rxFrame.exId.data = (addr >> 8) & 0xFFFF;
+        rxFrame.exId.id = (addr >> 24) & 0xFF;
+        qDebug() << "ID:" << rxFrame.exId.id;
+        qDebug() << "Data:" << rxFrame.exId.data;
+        qDebug() << "Mode:" << rxFrame.exId.mode;
+        qDebug() << "Res:" << rxFrame.exId.res;
+
+        rxFrame.len = pack[6];
+
+        for(quint8 i = 0;i<rxFrame.len;i++)
+            rxFrame.data[i] = pack[7+i];
+
+        rxdata[0] = rxFrame.exId.id;
+        rxdata[1] = (rxFrame.exId.data >> 8) & 0xFF;
+        rxdata[2] = rxFrame.exId.data & 0xFF;
+        rxdata[3] = ((rxFrame.exId.mode & 0x1F) << 3) | (rxFrame.exId.res & 0x07);;                 // 1 byte
+        rxdata[4] = rxFrame.len;
+        for(quint8 j=0;j<rxFrame.len;j++)
+            rxdata[5+j] = rxFrame.data[j];
+
+    }else
+    {
+        QMessageBox::warning(nullptr, "Invalid Input", "Invalid input data.");
+        ui->lineEdit_comtocan->clear();
+        ui->lineEdit->clear();
+        return;
+    }
+    emit SerialToCan(rxdata);
+
+}
+
+void MainWindow::on_btn_clear1_clicked()
+{
+    ui->lineEdit_comtocan->clear();
+    ui->lineEdit->clear();
+    ui->lineEdit_11->clear();
+    ui->lineEdit_12->clear();
+    ui->lineEdit_13->clear();
+}
+
+void MainWindow::on_btn_clear2_clicked()
+{
+    ui->lineEdit_cantocom->clear();
+    ui->lineEdit_3->clear();
+    ui->lineEdit_5->clear();
+    ui->lineEdit_6->clear();
+    ui->lineEdit_7->clear();
+    ui->lineEdit_8->clear();
+    ui->lineEdit_9->clear();
+}
+
+void MainWindow::on_canTocom_bt_clicked()
+{
+//    struct canPack pack;
+//    memset(&pack, 0, sizeof(struct canPack));
+//    QString hexString = ui->lineEdit_3->text().trimmed();  // 从 QLineEdit 中读取十六进制字符串
+
+//    if (hexString.isEmpty()) {
+//        qDebug() << "Error: Input is empty!";
+//        QMessageBox::warning(nullptr, "Invalid Input", "Please enter a valid hexadecimal string.");
+//        return;
+//    }
+
+//    // 移除无效字符
+//    hexString.remove(QRegExp("[^0-9A-Fa-f]")); // 只保留有效的十六进制字符
+
+//    // 检查长度是否为偶数
+//    if (hexString.length() % 2 != 0) {
+//        qDebug() << "Warning: Hex string length is odd, auto-padding with 0.";
+//        hexString.prepend('0'); // 在前面补零
+//    }
+
+//    QByteArray byteArray = QByteArray::fromHex(hexString.toUtf8());
+
+//    if (byteArray.size() < 5) {
+//        qDebug() << "Error: Byte array too short!";
+//        QMessageBox::warning(nullptr, "Invalid Input", "The byte array must contain at least 5 bytes.");
+//        return;
+//    }
+
+//    pack.exId.id = byteArray[0];              // ID 是第一个字节
+//    pack.exId.data = byteArray[1];            // Data 是第二个字节
+//    pack.exId.mode = 0xfd;//static_cast<canComMode>(byteArray[2] & 0x1F);  // Mode 是第三个字节，取低5位
+//    pack.exId.res = byteArray[3] & 0x07;      // Res 是第四个字节，取低3位
+
+
+
+//    // 第 5 个字节为 Length
+//    pack.len = byteArray[4];
+
+//    // 输出字节数组及结构体成员
+//    qDebug() << "Byte array (hex):" << byteArray.toHex(); // 输出转换后的字节数组
+//    for (int i = 0; i < byteArray.size(); ++i) {
+//        qDebug() << "Byte" << i << ":" << static_cast<int>(byteArray[i]);
+//    }
+
+//    // 输出结构体的成员
+//    qDebug() << "ID:" << pack.exId.id;
+//    qDebug() << "Data:" << pack.exId.data; // 确认这里的值
+//    qDebug() << "Mode:" << pack.exId.mode;
+//    qDebug() << "Res:" << pack.exId.res;
+//    qDebug() << "Length:" << pack.len;
+
+//    // 输出数据数组
+//    QString dataStr;
+//    for (int i = 0; i < pack.len; ++i) {
+//        if (5 + i < byteArray.size()) { // 确保不会超出数组边界
+//            pack.data[i] = byteArray[5 + i]; // 从字节数组中提取数据
+//            dataStr.append(QString("%1 ").arg(pack.data[i], 2, 16, QLatin1Char('0')).toUpper());
+//        }
+//    }
+//    qDebug() << "Data Array:" << dataStr.trimmed();
+    struct dataPack pack;
+    memset(&pack, 0, sizeof(struct dataPack));
+    QString hexString = ui->lineEdit_3->text().trimmed();
+    if (hexString.isEmpty()) {
+        qDebug() << "Error: Input is empty!";
+        QMessageBox::warning(nullptr, "Invalid Input", "Please enter a valid hexadecimal string.");
+        ui->lineEdit_cantocom->clear();
+        ui->lineEdit_3->clear();
+        ui->lineEdit_5->clear();
+        ui->lineEdit_6->clear();
+        ui->lineEdit_7->clear();
+        ui->lineEdit_8->clear();
+        ui->lineEdit_9->clear();
+        return;
+    }
+
+    // 移除无效字符
+    hexString.remove(QRegExp("[^0-9A-Fa-f]")); // 只保留有效的十六进制字符
+
+    // 检查长度是否为偶数
+    if (hexString.length() % 2 != 0) {
+        qDebug() << "Warning: Hex string length is odd, auto-padding with 0.";
+        hexString.prepend('0'); // 在前面补零
+    }
+    QByteArray byteArray = QByteArray::fromHex(hexString.toUtf8());
+
+    if (byteArray.size() < 5) {
+        qDebug() << "Error: Byte array too short!";
+        QMessageBox::warning(nullptr, "Invalid Input", "The byte array must contain at least 5 bytes.");
+        ui->lineEdit_cantocom->clear();
+        ui->lineEdit_3->clear();
+        ui->lineEdit_5->clear();
+        ui->lineEdit_6->clear();
+        ui->lineEdit_7->clear();
+        ui->lineEdit_8->clear();
+        ui->lineEdit_9->clear();
+        return;
+    }
+    // 解析数据
+    pack.exId.id = byteArray[0];  // ID 是第一个字节
+
+    // Data 由两个字节组成，需要合并 byteArray[1] 和 byteArray[2]
+    pack.exId.data = (static_cast<quint16>(static_cast<quint8>(byteArray[1]) << 8)) | static_cast<quint8>(byteArray[2]);
+
+    // Mode 是 byteArray[3] 的低5位
+    pack.exId.mode = (byteArray[3] >> 3) & 0x1F;
+
+    // Res 是 byteArray[3] 的高3位
+    pack.exId.res = byteArray[3] & 0x07;
+
+    // 第 5 个字节为 Length
+    pack.len = byteArray[4];
+
+    // 输出字节数组及结构体成员
+    qDebug() << "Byte array (hex):" << byteArray.toHex(); // 输出转换后的字节数组
+    for (int i = 0; i < byteArray.size(); ++i) {
+        qDebug() << "Byte" << i << ":" << static_cast<quint16>(byteArray[i]);
+    }
+
+    // 输出结构体的成员
+    qDebug() << "ID:" << pack.exId.id;
+    qDebug() << "Data:" << pack.exId.data; // 确认这里的值
+    qDebug() << "Mode:" << pack.exId.mode;
+    qDebug() << "Res:" << pack.exId.res;
+    qDebug() << "Length:" << pack.len;
+
+    // 输出数据数组
+    QString dataStr;
+    for (int i = 0; i < pack.len; ++i) {
+        if (5 + i < byteArray.size()) { // 确保不会超出数组边界
+            pack.cdata[i] = byteArray[5 + i]; // 从字节数组中提取数据
+            dataStr.append(QString("%1 ").arg(pack.cdata[i], 2, 16, QLatin1Char('0')).toUpper());
+        }
+    }
+    qDebug() << "Data Array:" << dataStr.trimmed();
+
+    txdPack(&pack);
+}
+
+void MainWindow::on_comTocan_bt_clicked()
+{
+    QString hexString = ui->lineEdit->text().trimmed();
+    if (hexString.isEmpty()) {
+        qDebug() << "Error: Input is empty!";
+        QMessageBox::warning(nullptr, "Invalid Input", "Please enter a valid hexadecimal string.");
+        ui->lineEdit_comtocan->clear();
+        ui->lineEdit->clear();
+        ui->lineEdit_11->clear();
+        ui->lineEdit_12->clear();
+        ui->lineEdit_13->clear();
+        return;
+    }
+
+    // 移除无效字符，只保留有效的十六进制字符
+    hexString.remove(QRegExp("[^0-9A-Fa-f]"));
+
+    // 检查长度是否为偶数，如果不为偶数，前面补零
+    if (hexString.length() % 2 != 0) {
+        qDebug() << "Warning: Hex string length is odd, auto-padding with 0.";
+        hexString.prepend('0');
+    }
+
+    // 将十六进制字符串转换为字节数组
+    QByteArray byteArray = QByteArray::fromHex(hexString.toUtf8());
+
+    if (byteArray.size() < 5) {
+        qDebug() << "Error: Byte array too short!";
+        QMessageBox::warning(nullptr, "Invalid Input", "The byte array must contain at least 5 bytes.");
+        ui->lineEdit_comtocan->clear();
+        ui->lineEdit->clear();
+        ui->lineEdit_11->clear();
+        ui->lineEdit_12->clear();
+        ui->lineEdit_13->clear();
+        return;
+    }
+
+    // 输出字节数组内容，每个字节以十六进制和十进制表示
+    qDebug() << "Byte array (hex):" << byteArray.toHex();
+    for (int i = 0; i < byteArray.size(); ++i) {
+        quint8 byteValue = static_cast<quint8>(byteArray[i]);  // 确保每个字节被解读为无符号数
+        qDebug() << "Byte" << i << ":" << QString("0x%1").arg(byteValue, 2, 16, QLatin1Char('0')).toUpper() << "(" << byteValue << ")";
+    }
+
+    analysisRxdDatas(byteArray);
+}
+
